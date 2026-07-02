@@ -1,4 +1,4 @@
-# Pangu-Weather Data Assimilation via Prior Knowledge
+# Training-Free Variational Data assimilation with Pangu-Weather
 
 This repository implements a data assimilation approach for the [Pangu-Weather](https://github.com/198808xc/Pangu-Weather) model. Given partial or uncertain atmospheric observations, the method uses L-BFGS optimization to find an initial atmospheric state that satisfies prior knowledge constraints while remaining close to the model's climatological distribution.
 
