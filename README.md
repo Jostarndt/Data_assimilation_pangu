@@ -84,8 +84,10 @@ If you use this code, please cite the following works:
   publisher={Nature Publishing Group}
 }
 ```
-
+Also 
 **WeatherLearn** (patch embedding utilities in `weatherlearn_utils/`):
+
+which we have used for the dataloader and wand to thank for their good work.
 ```
 https://github.com/lizhuoq/WeatherLearn
 ```
