@@ -1,0 +1,24 @@
+[project]
+name = "pangu"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10.16,<3.11"
+dependencies = [
+    "axial-attention>=0.6.1",
+    "dask",
+    "gradnorm-pytorch>=0.2.2",
+    "netcdf4>=1.7.3",
+    "numpy>=2.2.6",
+    "onnx2torch==1.5.15",
+    "pandas>=2.3.3",
+    "pyyaml>=6.0.3",
+    "tensordict>=0.10.0",
+    "timm>=1.0.24",
+    "torch>=2.9.1",
+    "torchmetrics>=1.8.2",
+    "torchvision>=0.24.1",
+    "tqdm>=4.67.1",
+    "wandb>=0.24.0",
+    "xarray>=2025.6.1",
+]

@@ -1,0 +1,22 @@
+# Binary model and data files
+*.pt
+*.pth
+*.onnx
+*.sif
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Wandb
+wandb/
+
+# Job outputs
+*.out
+*.err
+
+# Editor
+.vscode/
+.idea/
