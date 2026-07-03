@@ -1,30 +1,20 @@
-#  uv run prio_knowledge_training_single_gpu.py --prior_known_dim=[1,2] --reg_param 1e8 --known_region
+#  uv run prio_knowledge_training_single_gpu.py --model_path pangu_weather_24.onnx --data_path /path/to/era5.nc --prior_known_dim=[1,2] --reg_param 1e8
 import os
 import sys
 import argparse
 import yaml
 import torch
-import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
-import torch.nn.functional as F
+from torch.utils.data import DataLoader
 import numpy as np
 import wandb
 import time
-import pdb
-import itertools
 from pathlib import Path
-#from torch.cuda.amp import autocast
 from torch.amp import GradScaler, autocast
 
 from tensordict.tensordict import TensorDict
 
-from utils import Era5DeterministicMetrics
-
-#import onnx
-# from onnx2pytorch import ConvertModel
-import onnx2torch
-from onnx2torch import convert 
+from onnx2torch import convert
 
 #from torch.distributed.fsdp import fully_shard, FSDPModule
 #import torch.distributed as dist
@@ -39,19 +29,18 @@ def main():
     # Argument parser for configuration file
     parser = argparse.ArgumentParser(description='Training script for Model A')
     parser.add_argument('--config', type=str, default='config.yaml', help='Path to the config file')
-    parser.add_argument('--model_path', type=str, default=None, help='Path to a model')
-    parser.add_argument('--name', type=str, default=None, help='Path to a model')
-    parser.add_argument('--cluster', help='set path only when executed on cluster')
-    parser.add_argument('--checkpoint', help='set path only when executed on cluster')
+    parser.add_argument('--model_path', type=str, required=True, help='Path to Pangu-Weather ONNX model')
+    parser.add_argument('--data_path', type=str, required=True, help='Path to ERA5 NetCDF file')
+    parser.add_argument('--name', type=str, default=None, help='Experiment name for wandb')
+    parser.add_argument('--checkpoint', help='Path to checkpoint')
     parser.add_argument('--git_commit', type=str, help='Git commit hash')
     parser.add_argument('--prior_known_dim', type=str, default=None, help='List of integers, e.g., "[1,2,3]"')
     parser.add_argument('--known_region', action='store_true', default=False, help='Set to True if region is known')
-    #parser.add_argument('--known_atmosphere', type=int, default=None, help='')
     parser.add_argument('--known_atmosphere',type=lambda x: None if x.lower() == 'none' else int(x),default=None)
-    #parser.add_argument('--known_atmosphere', action='store_true', default=False, help='Set to True if region is known')
-    parser.add_argument('--slurm_id', type=str, help='SLURM Job ID')
+    parser.add_argument('--slurm_id', type=str, default=None, help='SLURM Job ID')
     parser.add_argument('--reg_param', type=float, default=1e8, help='regularization parameter')
     parser.add_argument('--LBFGSsteps', type=int, default=15)
+    parser.add_argument('--r_tensors_path', type=str, default=None, help='Path to r_tensors.pt for blended rollout')
 
     args = parser.parse_args()
     print("SLURM job id: ", args.slurm_id)
@@ -80,15 +69,10 @@ def main():
     config['LBFGSsteps']=args.LBFGSsteps
 
 
-    # Initialize Weights and Biases
-    if args.cluster:
-        wandb.init(project=config['wandb']['project'], config=config, name=args.name, tags=[args.slurm_id], dir="/mnt/output")
-        config['output']['model_save_path'] = "/mnt/output/"
-        print("Running on cluster, thus save_path changed to: ", config['output']['model_save_path'] )
-        wandb.save("prio_knowledge_training_single_gpu.py")
+    wandb.init(project=config['wandb']['project'], config=config, name=args.name,
+               tags=[args.slurm_id] if args.slurm_id else [])
+    wandb.save("prio_knowledge_training_single_gpu.py")
 
-
-    batch_factor = 1
     batch_size=1
 
     # Device configuration
@@ -97,11 +81,9 @@ def main():
     print(f'Using device: {device}')
     
     current_file_dir = Path(__file__).resolve().parent
-    sys.path.append(str(current_file_dir.parent.parent / "data/era_from_arches"))
-    #sys.path.append('../../data/era_from_arches')
+    sys.path.append(str(current_file_dir.parent.parent / "data/era5_dataloader"))
     from era5 import Era5Forecast
     
-    variables = None
     variables = {
             'surface':[
                 "mean_sea_level_pressure",
@@ -115,38 +97,19 @@ def main():
                 "u_component_of_wind",
                 "v_component_of_wind"]
             }
-    '''
-    '''
-    # for other variables, meand and std have to be calculated; 
-    # check  Era5Forecast for other variables
 
     train_dataset = Era5Forecast(domain="train", lead_time_hours=24,
             multistep=1,
             variables=variables, norm_scheme=False,
-            path='/srv/data/era_high_res_jost/weatherbench2_complete_2022.nc.nc')#weatherbench2_2020.nc')
+            path=args.data_path)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, 
+    train_loader = DataLoader(train_dataset, batch_size=batch_size,
             shuffle=True, num_workers=16, collate_fn=collate_fn)
 
     print("Loading model")
-    '''
-    print(f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'NOT SET')}")
-    dist.init_process_group(backend="nccl")
-    device_mesh = init_device_mesh("cuda", (dist.get_world_size(),))
-    #print('DEVICE MESH:', device_mesh)
-    local_rank = int(os.environ['LOCAL_RANK'])
-    print(f"Rank {local_rank}: Set CUDA device to {torch.cuda.current_device()}")'''
-    # Initialize the model
-    #from model import ForecastModuleWithCond
     precision = torch.float
 
-    # Load the ONNX model
-    #onnx_model = onnx.load("/home/fe/arndt/pangu_weather_6.onnx")
-
-    # Convert to PyTorch
-    #pytorch_model = ConvertModel(onnx_model)
-    # pytorch_model = convert("/home/fe/arndt/pangu_weather_6.onnx")
-    pytorch_model = convert("/home/fe/arndt/pangu_weather_24.onnx")
+    pytorch_model = convert(args.model_path)
     model = pytorch_model.to(device)
        
     # Define loss function and optimizer
@@ -154,27 +117,17 @@ def main():
 
     scaler = GradScaler("cuda")
 
-    # Training parameters
-    num_epochs = config['training']['epochs']
-    num_finetune_epochs = config['training']['finetune_epochs']
-
-    # Load checkpoint if specified
-    start_epoch = 1
-    start_step = 0
-
     print("Start training")
-    
-    train_fkt(model, train_loader, criterion, scaler, train_dataset.denormalize,
-            device, precision, config, epoch=1,start_step=0, prior_known_dim=prior_known_dim, reg_param=args.reg_param,
-            known_region=args.known_region, known_atmosphere=args.known_atmosphere,LBFGS_steps=args.LBFGSsteps)
-        
-    #criterion.test_metrics[0].reset()
 
+    train_fkt(model, train_loader, criterion, scaler, train_dataset.denormalize,
+            device, precision, config, epoch=1, start_step=0, prior_known_dim=prior_known_dim, reg_param=args.reg_param,
+            known_region=args.known_region, known_atmosphere=args.known_atmosphere, LBFGS_steps=args.LBFGSsteps,
+            r_tensors_path=args.r_tensors_path)
 
 
 def train_fkt(model, train_loader, criterion, scaler, denorm, device, precision, config, epoch,
-        start_step=0,prior_known_dim=None, reg_param=1e8,
-        known_region=False, known_atmosphere=None, LBFGS_steps=15):
+        start_step=0, prior_known_dim=None, reg_param=1e8,
+        known_region=False, known_atmosphere=None, LBFGS_steps=15, r_tensors_path=None):
     model.eval()
     for param in model.parameters():
         param.requires_grad = False
@@ -328,42 +281,34 @@ def train_fkt(model, train_loader, criterion, scaler, denorm, device, precision,
                 #pdb.set_trace()
                 #print('next iteration')
 
-                if 'future_states' in batch:#['future_states'].shape[-1]>0:
+                if 'future_states' in batch:
                     rollout_orig = []
                     rollout_corr = []
-                    rollout_blended = []
 
                     outputs_next_corrected = outputs
                     outputs_orig_next = outputs_orig
 
-                    r_tensors = torch.load('/home/fe/arndt/r_tensors.pt')
-                    outputs_next_blended = {'level' : outputs_orig['level'] + r_tensors['r_level'].unsqueeze(-1).unsqueeze(-1) * (outputs['level'] - outputs_orig['level']),
-                            'surface' : outputs_orig['surface'] + r_tensors['r_surface'].unsqueeze(-1).unsqueeze(-1) * (outputs['surface'] - outputs_orig['surface'])}
-                    rollout_blended.append(outputs_next_blended)
+                    if r_tensors_path:
+                        rollout_blended = []
+                        r_tensors = torch.load(r_tensors_path)
+                        outputs_next_blended = {
+                            'level': outputs_orig['level'] + r_tensors['r_level'].unsqueeze(-1).unsqueeze(-1) * (outputs['level'] - outputs_orig['level']),
+                            'surface': outputs_orig['surface'] + r_tensors['r_surface'].unsqueeze(-1).unsqueeze(-1) * (outputs['surface'] - outputs_orig['surface'])}
+                        rollout_blended.append(outputs_next_blended)
 
                     for rstep in range(batch['future_states'].shape[-1]):
-                        #this is the initial rollout
                         outputs_level_orig, outputs_surface_orig = model(input_1 = outputs_orig_next['level'], input_2 = outputs_orig_next['surface'])
                         outputs_orig_next = {'level':outputs_level_orig, 'surface':outputs_surface_orig}
-
-                        #rollout_loss_orig = criterion.loss(outputs_orig_next, batch['future_states'][...,rstep], timestamp=batch['timestamp'],
-                        #        complement=False, prior_known_dim=None, known_region=False, known_atmosphere=False)
                         rollout_orig.append(outputs_orig_next)
 
-                        # This is corrected rollout
                         outputs_level, outputs_surface = model(input_1 = outputs_next_corrected['level'], input_2=outputs_next_corrected['surface'])
                         outputs_next_corrected = {'level':outputs_level, 'surface':outputs_surface}
-                        #rollout_loss_corr = criterion.loss(outputs_next_corrected, batch['future_states'][...,rstep], timestamp=batch['timestamp'],
-                        #        complement=False, prior_known_dim=None, known_region=False, known_atmosphere=False)
                         rollout_corr.append(outputs_next_corrected)
 
-                        # This is projected rollout
-                        outputs_level, outputs_surface = model(input_1 = outputs_next_blended['level'], input_2=outputs_next_blended['surface'])
-                        outputs_next_blended = {'level':outputs_level, 'surface':outputs_surface}
-                        #rollout_loss_blended = criterion.loss(outputs_next_blended, batch['future_states'][...,rstep], timestamp=batch['timestamp'],
-                        #        complement=False, prior_known_dim=None, known_region=False, known_atmosphere=False)
-                        rollout_blended.append(outputs_next_blended)
-                        #rollout_loss = ((rollout_loss_corr/rollout_loss_orig)-1)*100
+                        if r_tensors_path:
+                            outputs_level, outputs_surface = model(input_1 = outputs_next_blended['level'], input_2=outputs_next_blended['surface'])
+                            outputs_next_blended = {'level':outputs_level, 'surface':outputs_surface}
+                            rollout_blended.append(outputs_next_blended)
 
                     rollout_orig_stacked = {
                             'level': torch.stack([r['level'].cpu() for r in rollout_orig]),
@@ -373,10 +318,11 @@ def train_fkt(model, train_loader, criterion, scaler, denorm, device, precision,
                             'level': torch.stack([r['level'].cpu() for r in rollout_corr]),
                             'surface': torch.stack([r['surface'].cpu() for r in rollout_corr])
                             }
-                    rollout_blend_stacked = {
-                            'level': torch.stack([r['level'].cpu() for r in rollout_blended]),
-                            'surface': torch.stack([r['surface'].cpu() for r in rollout_blended])
-                            }
+                    if r_tensors_path:
+                        rollout_blend_stacked = {
+                                'level': torch.stack([r['level'].cpu() for r in rollout_blended]),
+                                'surface': torch.stack([r['surface'].cpu() for r in rollout_blended])
+                                }
 
         save_dict = {
             'corrected state': batch['state'],
@@ -385,38 +331,16 @@ def train_fkt(model, train_loader, criterion, scaler, denorm, device, precision,
             'corrected_forecast': outputs,
             'target': batch['next_state'],
         }
-        # Add rollout data if the lists were populated
-        #if 'rollout_orig' in locals() and rollout_orig:  # if list is not empty
         if 'future_states' in batch:
             save_dict['original_rollout'] = rollout_orig_stacked
             save_dict['corrected_rollout'] = rollout_corr_stacked
-            save_dict['blended_rollout'] = rollout_blend_stacked
+            if r_tensors_path:
+                save_dict['blended_rollout'] = rollout_blend_stacked
             save_dict['gt_rollout'] = batch['future_states']
 
         torch.save(save_dict,
-            f'/mnt/output/correction_tensordicts{i}.pt')
-        '''
-        rel_dif_surface_table = wandb.Table(columns=["mean_sea_level_pressure",
-            "10m_u_component_of_wind",
-            "10m_v_component_of_wind",
-            "2m_temperature"], data=rel_dif_surface)
-        wandb.log({'Relative differences surface': rel_dif_surface_table})
+            os.path.join(config['output']['model_save_path'], f'correction_tensordicts{i}.pt'))
 
-        rel_dif_level_table = wandb.Table(columns=["geopotential",
-                "specific_humidity",
-                "temperature",
-                "u_component_of_wind",
-                "v_component_of_wind"], data=rel_dif_level)
-        wandb.log({'Relative differences level': rel_dif_level_table})
-        '''
-
-        #for metric in criterion.test_metrics:
-        #    # inputs TensorDict
-        #    # predictions tensordict / list of tensordicts
-        #    metric.update(
-        #            batch["next_state"], #denorm(batch["next_state"])[:, None], 
-        #            TensorDict(outputs),#denorm(model(batch))[:, None]
-        #            )
         end_time = time.time()
         time_diff = end_time - start_time
         wandb.log({
@@ -427,60 +351,6 @@ def train_fkt(model, train_loader, criterion, scaler, denorm, device, precision,
         })
         start_time=time.time()
 
-        if (i+1) % 4000 == 0: # logging
-            log_dict_level = criterion.test_metrics[0].metrics["level"].compute()
-            log_dict_surface = criterion.test_metrics[0].metrics["surface"].compute()
-
-            steps = sorted(set([int(key.split('_')[-1][:-1]) for key in log_dict_level.keys()]))
-
-            wandb.define_metric("Forecasting_step")
-            # wandb.define_metric("RMSE_before_time_avg_Z500" , step_metric="Forecasting_step")
-            wandb.define_metric("RMSE_Z500" , step_metric="Forecasting_step")
-            # wandb.define_metric("RMSE_before_time_avg_U850" , step_metric="Forecasting_step")
-            wandb.define_metric("RMSE_U850" , step_metric="Forecasting_step")
-            # wandb.define_metric("RMSE_before_time_avg_V850" , step_metric="Forecasting_step")
-            wandb.define_metric("RMSE_V850" , step_metric="Forecasting_step")
-            # wandb.define_metric("RMSE_before_time_avg_T850" , step_metric="Forecasting_step")
-            wandb.define_metric("RMSE_T850" , step_metric="Forecasting_step")
-            # wandb.define_metric("RMSE_before_time_avg_Q700" , step_metric="Forecasting_step")
-            wandb.define_metric("RMSE_Q700" , step_metric="Forecasting_step")
-            # wandb.define_metric("RMSE_before_time_avg_U10m" , step_metric="Forecasting_step")
-            wandb.define_metric("RMSE_U10m" , step_metric="Forecasting_step")
-            # wandb.define_metric("RMSE_before_time_avg_V10m" , step_metric="Forecasting_step")
-            wandb.define_metric("RMSE_V10m" , step_metric="Forecasting_step")
-            # wandb.define_metric("RMSE_before_time_avg_T2m" , step_metric="Forecasting_step")
-            wandb.define_metric("RMSE_T2m" , step_metric="Forecasting_step")
-            # wandb.define_metric("RMSE_before_time_avg_SP" , step_metric="Forecasting_step")
-            wandb.define_metric("RMSE_SP" , step_metric="Forecasting_step")
-            wandb.define_metric("RMSE_precip24h" , step_metric="Forecasting_step")
-            for i in steps:
-                wandb.log( {#"RMSE_before_time_avg_Z500":log_dict_level[f'rmse_before_time_avg_Z500_{i}h'],
-                    "RMSE_Z500":log_dict_level[f'rmse_Z500_{i}h'],
-                    # "RMSE_before_time_avg_U850":log_dict_level[f'rmse_before_time_avg_U850_{i}h'],
-                    "RMSE_U850":log_dict_level[f'rmse_U850_{i}h'],
-                    # "RMSE_before_time_avg_V850":log_dict_level[f'rmse_before_time_avg_V850_{i}h'],
-                    "RMSE_V850":log_dict_level[f'rmse_V850_{i}h'],
-                    # "RMSE_before_time_avg_T850":log_dict_level[f'rmse_before_time_avg_T850_{i}h'],
-                    "RMSE_T850":log_dict_level[f'rmse_T850_{i}h'],
-                    # "RMSE_before_time_avg_Q700":log_dict_level[f'rmse_before_time_avg_Q700_{i}h'],
-                    "RMSE_Q700":log_dict_level[f'rmse_Q700_{i}h'],
-                    #After this surface variables
-                    # "RMSE_before_time_avg_U10m":log_dict_surface[f'rmse_before_time_avg_U10m_{i}h'],
-                    "RMSE_U10m":log_dict_surface[f'rmse_U10m_{i}h'],
-                    # "RMSE_before_time_avg_V10m":log_dict_surface[f'rmse_before_time_avg_V10m_{i}h'],
-                    "RMSE_V10m":log_dict_surface[f'rmse_V10m_{i}h'],
-                    # "RMSE_before_time_avg_T2m":log_dict_surface[f'rmse_before_time_avg_T2m_{i}h'],
-                    "RMSE_T2m":log_dict_surface[f'rmse_T2m_{i}h'],
-                    # "RMSE_before_time_avg_SP":log_dict_surface[f'rmse_before_time_avg_SP_{i}h'],
-                    "RMSE_SP":log_dict_surface[f'rmse_SP_{i}h'],
-                    #"RMSE_precip24h":log_dict_surface[f'rmse_precip24h_{i}h'],
-                    "Forecasting_step":i
-                    })
-            # wandb.log(criterion.test_metrics[0].metrics["level"].compute())
-            # wandb.log(criterion.test_metrics[0].metrics["surface"].compute())
-            criterion.test_metrics[0].reset()
-
-            sys.exit("Job cancelled since first push to wandb reached")
 
 
 def collate_fn(lst):
@@ -530,67 +400,11 @@ class Loss_class():
             level=area_weights * level_coeffs * vertical_coeffs / total_coeff,
         )#.to(precision)
 
-        # if loss_delta_normalization:#True 
-        if variables is None:#never really happens in this scripts
-            pdb.set_trace()
-            #geoarches_stats_path= os.path.join(os.path.dirname(__file__), '../../data/era_from_arches/')
-            # assumes include vertical wind component
-            #pangu_stats = torch.load(
-            #    geoarches_stats_path + "/pangu_norm_stats2_with_w.pt", weights_only=True
-            #)
-            '''
-            # mul by first to remove norm, div by second to apply fake delta normalization
-            self.loss_delta_scaler = TensorDict(
-                level=pangu_stats["level_std"]
-                / torch.tensor(
-                    [5.9786e02, 7.4878e00, 8.9492e00, 2.7132e00, 9.5222e-04, 0.3]
-                ).reshape(-1, 1, 1, 1),
-                surface=pangu_stats["surface_std"]
-                / torch.tensor([3.8920, 4.5422, 2.0727, 584.0980]).reshape(-1, 1, 1, 1),
-            )
-            '''
-            #self.loss_delta_scaler = TensorDict(
-            #    level=pangu_stats["level_std"],
-            #    surface=pangu_stats["surface_std"],
-            #)
-            # TODO those parameters may come from pangu_stats["level_std"][:,0,:,:]
-            # and from pangu_stats["surface_std"]
-            #self.loss_coeffs = self.loss_coeffs * self.loss_delta_scaler.pow(2)#self.pow)
-
-        else:
-            era_stats_path= os.path.join(os.path.dirname(__file__), 'era_data_stds.pt')
-            era_stats = torch.load(era_stats_path, weights_only=True)
-            self.loss_delta_scaler = TensorDict(
-                level=era_stats['level'],
-                surface=era_stats['surface'],
-            ).to(device)
-            self.loss_delta_scaler['level'].requires_grad=False
-            self.loss_delta_scaler['surface'].requires_grad=False
-            '''pdb.set_trace()
-            geoarches_stats_path= os.path.join(os.path.dirname(__file__), '../../data/era_from_arches/')
-            # assumes include vertical wind component
-            pangu_stats = torch.load(
-                geoarches_stats_path + "/incl_precip_surface_geop.pt", weights_only=True
-            )
-            # mul by first to remove norm, div by second to apply fake delta normalization
-            self.loss_delta_scaler = TensorDict(
-                level=pangu_stats["level_std"],
-                surface=pangu_stats["surface_std"],
-            )
-            #self.loss_coeffs = self.loss_coeffs * self.loss_delta_scaler.pow(2)#self.pow)
-            '''
-
         self.loss_coeffs = self.loss_coeffs.to(device)
-
-        # This could be a ModuleDict as well!
-        #self.test_metrics = nn.ModuleList([Era5DeterministicMetrics(lead_time_hours = lead_time_hours, rollout_iterations=multistep, variables=variables)]).to(device)
         self.device=device
-        # for two losses - initial values
-        #self.mse_scale = 35
-        #self.physics_scale = 0.0002
         torch.manual_seed(42)
-        self.rand_mask = torch.rand(721, 1440)#
-        torch.save(self.rand_mask, "/mnt/output/rand_mask.pt") #< 0.25
+        self.rand_mask = torch.rand(721, 1440)
+        torch.save(self.rand_mask, "rand_mask.pt")
 
 
     def loss(self, pred, gt, multistep=False, prior_known_dim=None, original_state=None, physics_loss_coeff=0, timestamp=None,
@@ -670,7 +484,6 @@ class Loss_class():
 
 
         elif known_region:
-            pdb.set_trace()
             selected_pred = pred['surface'].squeeze()
             tdevice = pred['surface'].squeeze().device
             tdtype = pred['surface'].squeeze().dtype
