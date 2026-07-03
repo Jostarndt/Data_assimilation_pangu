@@ -329,8 +329,7 @@ class Era5Forecast(Era5Dataset):
                 a + str(p) for a in ["Z", "U", "V", "T", "Q"] for p in pressure_levels
             ]
         else:
-            norm_file_path = geoarches_stats_path + "/incl_precip.pt"#_surface_geop.pt"
-            #norm_file_path = "/srv/data/incl_precip.pt"
+            norm_file_path = geoarches_stats_path + "/pangu_norm_stats2_with_w.pt"
             #To create the norms, execute the following:
             '''
             from find_norm_tensors import calculate_variable_stats_direct 
