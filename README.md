@@ -43,9 +43,9 @@ bash execute.sh
 
 or directly with
 
-'''
+```
 uv run python3 prio_knowledge_training_single_gpu.py   --model_path path_to_model   --data_path path_to_data   --prior_known_dim="[1,2]" --reg_param 1e8
-'''
+```
 
 
 Key arguments for `prio_knowledge_training_single_gpu.py`:
@@ -54,10 +54,10 @@ Key arguments for `prio_knowledge_training_single_gpu.py`:
 |---|---|---|
 | `--model_path` | required | Path to Pangu-Weather ONNX model |
 | `--data_path` | required | Path to ERA5 NetCDF file |
-| `--prior_known_dim` | `[1,2]` | Which atmospheric dimensions are treated as known |
+| `--prior_known_dim` | `[1,2]` | Which surface dimensions are treated as known |
 | `--reg_param` | `1e8` | Regularization strength |
 | `--LBFGSsteps` | `15` | Number of L-BFGS inner steps |
-| `--known_atmosphere` | `None` | Index of known atmosphere mask |
+| `--known_atmosphere` | `None` | Index of known atmosphere mask, overwrite the atmospheric dimension. For details we refor to the code itself. |
 
 ## Experiment tracking
 
