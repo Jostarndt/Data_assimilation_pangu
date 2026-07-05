@@ -1,6 +1,6 @@
 # Training-Free Variational Data assimilation with Pangu-Weather
 
-This repository implements a data assimilation approach for the [Pangu-Weather](https://github.com/198808xc/Pangu-Weather) model. Given partial or uncertain atmospheric observations, the method uses L-BFGS optimization to find an initial atmospheric state that satisfies prior knowledge constraints while remaining close to the model's climatological distribution.
+This repository implements a data assimilation approach for the [Pangu-Weather](https://github.com/198808xc/Pangu-Weather) model. Given partial or uncertain atmospheric observations, the method uses L-BFGS optimization to find an initial atmospheric state that satisfies both observational constraints while remaining close to the model's initial input.
 
 ## Structure
 
@@ -41,11 +41,12 @@ cd models/pangu
 bash execute.sh
 ```
 
-Parameters can be overridden via environment variables:
+or directly with
 
-```bash
-PRIOR_DIM="[0,3]" REG_PARAM=1e7 LBFGSSTEP=50 bash execute.sh
-```
+'''
+uv run python3 prio_knowledge_training_single_gpu.py   --model_path path_to_model   --data_path path_to_data   --prior_known_dim="[1,2]" --reg_param 1e8
+'''
+
 
 Key arguments for `prio_knowledge_training_single_gpu.py`:
 
