@@ -21,4 +21,4 @@ output:
   # model_save_path: '/mnt/output/models/model_a/saved_models/'
 
 wandb:
-  project: 'my_ml_project_model_a'
+  project: 'da_pangu'
