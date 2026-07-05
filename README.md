@@ -43,9 +43,9 @@ bash execute.sh
 
 or directly with
 
-'''
+```
 uv run python3 prio_knowledge_training_single_gpu.py   --model_path path_to_model   --data_path path_to_data   --prior_known_dim="[1,2]" --reg_param 1e8
-'''
+```
 
 
 Key arguments for `prio_knowledge_training_single_gpu.py`:
