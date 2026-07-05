@@ -413,27 +413,28 @@ class Loss_class():
         if known_atmosphere is not None:
             #pdb.set_trace()
             mask = torch.zeros((721, 1440), dtype=torch.bool)
-            if known_atmosphere == 1:
+            if known_atmosphere == 1:#complete observation
                 mask = ~mask
-            elif known_atmosphere == 2:
-                mask[::2,::2]=True
-                mask = self.rand_mask < 0.25
-            elif known_atmosphere == 3:
-                mask[::3,::3]=True
-            elif known_atmosphere == 4:
-                mask[240:481, :] = True#tropics
+            elif known_atmosphere == 4:#tropics
+                mask[240:481, :] = True
             elif known_atmosphere == 5:#only upper-air atmosphere
                 mask = ~mask
-            elif known_atmosphere == 6:
-                mask[::4,::4]=True
-            elif known_atmosphere == 7:
-                mask = self.rand_mask
             elif known_atmosphere == 8:
                 mask = self.rand_mask < 0.25
             elif known_atmosphere == 9:
-                mask = self.rand_mask < 0.11
+                mask = self.rand_mask < 0.10
             elif known_atmosphere == 10:
-                mask = self.rand_mask < 0.0625
+                mask = self.rand_mask < 0.05
+            elif known_atmosphere == 11:
+                mask = self.rand_mask < 0.01
+            elif known_atmosphere == 12:
+                mask = self.rand_mask < 0.005
+            elif known_atmosphere == 13:
+                mask = self.rand_mask < 0.001
+            elif known_atmosphere == 14:
+                mask = self.rand_mask < 0.0005
+            elif known_atmosphere == 15:
+                mask = self.rand_mask < 0.0001
 
             ttype=gt['surface'].dtype
             tdevice=gt['surface'].device
