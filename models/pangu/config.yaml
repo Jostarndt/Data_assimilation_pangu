@@ -9,13 +9,6 @@ data:
   lead_time_hours: 24 # Initially 24; how far away is the next forecast
   multistep: 7 # how many forecasting iterations during testing
 
-training:
-  learning_rate: 3e-4
-  betas: (0.9, 0.98)
-  weight_decay: 0.05
-  epochs: 10 # original paper approx 5
-  finetune_epochs: 6 # original paper approx 3
-
 output:
   model_save_path: 'models/model_a/saved_models/'
   # model_save_path: '/mnt/output/models/model_a/saved_models/'
